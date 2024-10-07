@@ -1,0 +1,79 @@
+{
+  "dataset": {
+    "name": "lfm1b",
+    "path": "exp/data",
+    "files": {
+      "interactions": "LFM-1b_LEs.txt",
+      "streams": "user_sessions",
+      "track_embeddings": "normalized_pretrained_usr_track_embeddings"
+    },
+    "sep": "\t",
+    "col_names": ["user_id", "art_id", "track_id", "ts", "session_id"],
+    "ndays_min": 365,
+    "ndays_recent": 365,
+    "min_user_nstreams": 1000,
+    "min_item_nstreams": 1500,
+    "min_sessions": 50,
+    "samples_step": 5,
+    "test_size": 0.1,
+    "random_state": 101,
+    "recent_history": -1
+  },
+  "training": {
+    "learning_rate": 7.5e-4,
+    "min_lr": 1e-8,
+    "optimizer": "Adam",
+    "batch_size": 512,
+    "embedding_dim": 128,
+    "normalize_embedding": true,
+    "train_max_steps": 150000,
+    "save_checkpoints_steps": 1000,
+    "save_summary_steps": 100,
+    "num_epochs": 100,
+    "epoch_tolerate": 5,
+    "max_to_keep": 1,
+    "n_valid_users": 1000,
+    "model_dir": "exp/model",
+    "model": {
+      "name": "triplet",
+      "params": {
+        "clip_norm": 1.0,
+        "margin": 1.0,
+        "n_negatives": 5,
+        "l2_reg": false
+      }
+    }
+  },
+  "cache": {
+    "path": "cache",
+    "train_interactions": "train_interactions",
+    "valid_interactions": "valid_interactions",
+    "test_interactions": "test_interactions"
+  },
+  "logs": {
+    "log_dir": "exp/logs",
+    "log_freq": 1000
+  },
+  "eval": {
+    "n_users": 3000,
+    "batch_size": 100,
+    "random_seeds": [1013, 2791, 4357, 6199, 7907],
+    "need_item_embeddings": false,
+    "level": "track",
+    "metrics": {
+      "primary": "ndcg",
+      "acc": [
+        {"name": "ndcg", "params": {"k": [10]}},
+        {"name": "recall", "params": {"k": [10]}},
+        {"name": "repr", "params": {"k": [10]}},
+        {"name": "ndcg_rep", "params": {"k": [10]}},
+        {"name": "ndcg_exp", "params": {"k": [10]}},
+        {"name": "recall_rep", "params": {"k": [10]}},
+        {"name": "recall_exp", "params": {"k": [10]}}
+      ],
+      "non_acc": [
+        {"name": "pop", "params": {"k": [10]}}
+      ]
+    }
+  }
+}

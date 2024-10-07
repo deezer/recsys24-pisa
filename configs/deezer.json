@@ -1,0 +1,100 @@
+{
+  "dataset": {
+    "name": "deezer",
+    "path": "exp/data",
+    "files": {
+      "streams": "sessions",
+      "track_embeddings": "svd_embeddings"
+    },
+    "min_sessions": 250,
+    "samples_step": 20,
+    "recent_history": -1,
+    "train_val_test_split": "-1:5:10",
+    "random_state": 101
+  },
+  "training": {
+    "learning_rate": 1e-3,
+    "min_lr": 1e-8,
+    "optimizer": "Adam",
+    "batch_size": 512,
+    "embedding_dim": 128,
+    "normalize_embedding": true,
+    "train_max_steps": 150000,
+    "save_checkpoints_steps": 1000,
+    "save_summary_steps": 100,
+    "num_epochs": 100,
+    "epoch_tolerate": 5,
+    "max_to_keep": 1,
+    "n_valid_users": 1000,
+    "model_dir": "exp/model",
+    "model": {
+      "name": "pisa",
+      "params": {
+        "input_scale": true,
+        "seqlen": 30,
+        "dropout_rate": 0,
+        "use_reg": true,
+        "l2_emb": 1e-5,
+        "pretrained": "item",
+        "n_negatives": 1,
+        "negsam_strategy": 0,
+        "sab": {
+          "causality": true,
+          "num_blocks": 2,
+          "num_heads": 2
+        },
+        "actr": {
+          "bll": {
+            "type": "ts"
+          },
+          "spread": {
+            "activate": true,
+            "hop": 1
+          },
+          "pm": {
+            "activate": true,
+            "emb": "learn"
+          },
+          "flatten_actr": 0.5
+        },
+        "neg_alpha": 0.5,
+        "num_favs": 20,
+        "lbda_ls": 0.4,
+        "lbda_task": 0.9,
+        "lbda_pos": 0.9
+      }
+    }
+  },
+  "cache": {
+    "path": "cache",
+    "train_interactions": "train_interactions",
+    "valid_interactions": "valid_interactions",
+    "test_interactions": "test_interactions"
+  },
+  "logs": {
+    "log_dir": "exp/logs",
+    "log_freq": 1000
+  },
+  "eval": {
+    "n_users": 3000,
+    "batch_size": 100,
+    "random_seeds": [1013, 2791, 4357, 6199, 7907],
+    "need_item_embeddings": false,
+    "level": "track",
+    "metrics": {
+      "primary": "ndcg",
+      "acc": [
+        {"name": "ndcg", "params": {"k": [10]}},
+        {"name": "recall", "params": {"k": [10]}},
+        {"name": "repr", "params": {"k": [10]}},
+        {"name": "ndcg_rep", "params": {"k": [10]}},
+        {"name": "ndcg_exp", "params": {"k": [10]}},
+        {"name": "recall_rep", "params": {"k": [10]}},
+        {"name": "recall_exp", "params": {"k": [10]}}
+      ],
+      "non_acc": [
+        {"name": "pop", "params": {"k": [10]}}
+      ]
+    }
+  }
+}
