@@ -44,7 +44,7 @@
         "l2_emb": 1e-5,
         "pretrained": "item",
         "n_negatives": 1,
-        "negsam_strategy": 0,
+        "negsam_strategy": 1,
         "sab": {
           "causality": true,
           "num_blocks": 2,
@@ -57,7 +57,7 @@
           "spread": {
             "activate": true,
             "hop": 1,
-            "n_last_sess": 1
+            "n_last_sess": 0
           },
           "pm": {
             "activate": true,

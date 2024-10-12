@@ -25,6 +25,7 @@ class PISA(Model):
         self.flatten_actr = model_params['actr'].get('flatten_actr', 1)
         # alwasy true for BLL
         self.num_active_comp = sum([True, self.spread_activate, self.pm_activate])
+        self.n_last_sess = model_params['actr']['spread'].get('n_last_sess', 0)
 
         self.lbda_task = model_params.get('lbda_task', 0.9)
         self.lbda_pos = model_params.get('lbda_pos', 0.)
@@ -147,22 +148,30 @@ class PISA(Model):
                 self.logger.info('----> ACTR-SPREAD Off')
                 seqin_actr_weights = tf.expand_dims(self.seqin_actr_bla, axis=-1)
                 pos_actr_weights = tf.expand_dims(self.pos_actr_bla, axis=-1)
+            if self.n_last_sess > 0:
+                prev_in_seq_ids = None
+                prev_pos_seq_ids = self.seqin_ids
+                prev_neg_seq_ids = self.seqin_ids
+            else:
+                prev_in_seq_ids = self.seqin_ids
+                prev_pos_seq_ids = self.pos_ids
+                prev_neg_seq_ids = self.neg_ids
 
             # input sequence
             self.input_seq, input_seq_nelems = \
                 self._get_sess_representation(
-                    self.seqin_ids, prev_seq_ids=None,
+                    self.seqin_ids, prev_seq_ids=prev_in_seq_ids,
                     seq_actr_weights=seqin_actr_weights)
 
             # positive output sequences
             self.weighted_pos_seq, pos_seq_nelems, self.pos_seq = \
                 self._get_sess_representation(self.pos_ids,
-                                              prev_seq_ids=self.seqin_ids,
+                                              prev_seq_ids=prev_pos_seq_ids,
                                               seq_actr_weights=pos_actr_weights,
                                               output_item_emb=True)
             # we don't need negative session representation
             _, _, self.neg_seq = self._get_sess_representation(
-                self.neg_ids, prev_seq_ids=self.seqin_ids,
+                self.neg_ids, prev_seq_ids=prev_neg_seq_ids,
                 output_item_emb=True, neg_seq=True)
 
             # ignore padding items (0)
@@ -259,7 +268,6 @@ class PISA(Model):
         item_embedding_table = self.item_embedding_table
         seq_emb = tf.nn.embedding_lookup(item_embedding_table, seq_ids)
         if prev_seq_ids is None:
-            # prev_seq_ids = tf.zeros_like(seq_ids, dtype=tf.float32)
             first_seq_ids = seq_ids[:, 0:1, :]
             prev_seq_ids = seq_ids[:, 0:self.seqlen - 1, :]
             prev_seq_ids = tf.concat([first_seq_ids, prev_seq_ids], axis=1)

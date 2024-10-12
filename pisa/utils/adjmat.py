@@ -20,27 +20,43 @@ def build_sparse_adjacency_matrix(user_sessions, level, recent_hist,
     pairs = {}
     split_idx = -(data_split['test'] + data_split['valid']) \
         if mode == 'train' else -data_split['test']
-    start_idx = split_idx - recent_hist + 1 if recent_hist > 0 else 1
+    n_last_sess = kwargs['n_last_sess']
+    if n_last_sess > 0:
+        start_idx = split_idx - recent_hist + 1 if recent_hist > 0 else 1
+    else:
+        start_idx = split_idx - recent_hist if recent_hist > 0 else 0
     if level == 'sess':
-        n_last_sess = kwargs['n_last_sess']
-        for uid, sessions in tqdm(user_sessions.items(),
-                                  desc='Calculate session-level co-occurence frequencies...'):
-            for idx in range(start_idx, len(sessions) + split_idx):
-                sess = sessions[idx]
-                if n_last_sess > 1:
-                    prev_idx = idx - n_last_sess if idx - n_last_sess >= 0 else 0
-                    prev_sessions = sessions[prev_idx:idx]
-                else:
-                    prev_sessions = [sessions[idx - 1]]
-                if track_art_map is None:
-                    id_list = [item_dict[tid] for tid in sess['track_ids']]
-                    prev_id_list = get_id_list(prev_sessions, item_dict)
-                else:
-                    id_list = [item_dict[track_art_map[tid]] for tid in sess['track_ids']]
-                    prev_id_list = get_id_list(prev_sessions, item_dict,
-                                               track_art_map)
-                for t in list(itertools.product(prev_id_list, id_list)):
-                    add_tuple(t, pairs)
+        if n_last_sess > 0:
+            for uid, sessions in tqdm(user_sessions.items(),
+                                      desc=f'Calculate session-level {n_last_sess} '
+                                           f'last sess co-occurence frequencies...'):
+                for idx in range(start_idx, len(sessions) + split_idx):
+                    sess = sessions[idx]
+                    if n_last_sess > 1:
+                        prev_idx = idx - n_last_sess if idx - n_last_sess >= 0 else 0
+                        prev_sessions = sessions[prev_idx:idx]
+                    else:
+                        prev_sessions = [sessions[idx - 1]]
+                    if track_art_map is None:
+                        id_list = [item_dict[tid] for tid in sess['track_ids']]
+                        prev_id_list = get_id_list(prev_sessions, item_dict)
+                    else:
+                        id_list = [item_dict[track_art_map[tid]] for tid in sess['track_ids']]
+                        prev_id_list = get_id_list(prev_sessions, item_dict,
+                                                   track_art_map)
+                    for t in list(itertools.product(prev_id_list, id_list)):
+                        add_tuple(t, pairs)
+        else:
+            for uid, sessions in tqdm(user_sessions.items(),
+                                      desc='Calculate session-level co-occurence frequencies...'):
+                for sess in sessions[start_idx:split_idx]:
+                    if track_art_map is None:
+                        id_list = [item_dict[tid] for tid in sess['track_ids']]
+                    else:
+                        id_list = [item_dict[track_art_map[tid]] for tid in
+                                   sess['track_ids']]
+                    for t in list(itertools.product(id_list, id_list)):
+                        add_tuple(t, pairs)
     else:
         user_hist = defaultdict(set)
         for uid, sessions in tqdm(user_sessions.items(),
