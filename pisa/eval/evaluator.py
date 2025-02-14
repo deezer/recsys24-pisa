@@ -19,10 +19,11 @@ class Evaluator:
                         for conf in config['metrics']['acc']
                         for k in conf['params']['k']]
         if kwargs['mode'] == 'test':
-            non_acc_metrics = [get_metric(conf['name'], k, **kwargs)
-                               for conf in config['metrics']['non_acc']
-                               for k in conf['params']['k']]
-            self.metrics = self.metrics + non_acc_metrics
+            if 'eval_level' not in kwargs or kwargs['eval_level'] == 'track':
+                non_acc_metrics = [get_metric(conf['name'], k, **kwargs)
+                                   for conf in config['metrics']['non_acc']
+                                   for k in conf['params']['k']]
+                self.metrics = self.metrics + non_acc_metrics
         self.ref_user_items = ref_user_items
         self.max_k = np.max([k for conf in config['metrics']['acc']
                              for k in conf['params']['k']])

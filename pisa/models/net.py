@@ -190,6 +190,7 @@ class PISA(Model):
 
             # short-term user representation by Transformers
             st_rep = self._seq_representation(self.scaled_input_seq, mask=mask,
+                                              dropout_rate=self.dropout_rate,
                                               name='user_short_term_rep')
             st_rep = st_rep / (tf.expand_dims(tf.norm(
                 st_rep + avoid_div_by_zero, ord=2, axis=-1), -1))
@@ -197,6 +198,7 @@ class PISA(Model):
             # long-term user representation
             lt_rep = self._long_term_user_representation(
                 lt_item_ids=self.lt_item_ids, lt_item_blls=self.lt_item_blls,
+                item_embedding_table=self.item_embedding_table,
                 name='lt_track_user_reps')
             self.lt_rep = lt_rep / (tf.expand_dims(tf.norm(
                 lt_rep + avoid_div_by_zero, ord=2, axis=-1), -1))
@@ -218,12 +220,13 @@ class PISA(Model):
         :return:
         """
         self.logger.debug('--> Create loss')
+        mask = tf.compat.v1.to_float(tf.not_equal(self.pos_ids, 0))
         # The output of short-term & positive session representations should be
         # closed to positive items presented in positive sessions
         seq_bpr_loss = self._create_bpr_loss(self.st_rep, self.pos_seq,
-                                             self.neg_seq)
+                                             self.neg_seq, mask)
         pos_bpr_loss = self._create_bpr_loss(self.weighted_pos_seq,
-                                             self.pos_seq, self.neg_seq)
+                                             self.pos_seq, self.neg_seq, mask)
         bpr_loss = self.lbda_pos * pos_bpr_loss + (1. - self.lbda_pos) * seq_bpr_loss
         # The output of short-term should be closed to the positive sessions
         regr_loss = self._create_regression_loss(self.st_rep,
@@ -231,18 +234,18 @@ class PISA(Model):
         # long-term
         if self.lbda_ls > 0:
             long_bpr_loss = self._create_bpr_loss(self.lt_rep,
-                                                  self.pos_seq, self.neg_seq)
+                                                  self.pos_seq, self.neg_seq, mask)
             bpr_loss += self.lbda_ls * long_bpr_loss
         # combine song-level loss & session-level loss
         self.loss = self.lbda_task * bpr_loss + (1. - self.lbda_task) * regr_loss
 
-    def _create_bpr_loss(self, seq, pos_seq, neg_seq,
+    @classmethod
+    def _create_bpr_loss(cls, seq, pos_seq, neg_seq, mask,
                          w_seq=None):
         pos_score = tf.squeeze(tf.matmul(tf.expand_dims(seq, axis=-2),
                                          pos_seq, transpose_b=True), axis=-2)
         neg_score = tf.squeeze(tf.matmul(tf.expand_dims(seq, axis=-2),
                                          neg_seq, transpose_b=True), axis=-2)
-        mask = tf.compat.v1.to_float(tf.not_equal(self.pos_ids, 0))
         posneg_score = -tf.math.log(tf.nn.sigmoid(pos_score - neg_score))
         posneg_score = posneg_score * mask
         # avoid NaN loss in the case only BLL
@@ -337,31 +340,36 @@ class PISA(Model):
             output = output + (seq_emb,)
         return output
 
-    def _seq_representation(self, seq, mask, name, nonscale_inseq=None):
-        # learnable absolute position embedding
-        self.abs_position = self._learnable_abs_position_embedding(
-            self.position_embedding_table)
-        seq = seq + self.abs_position
-        seq *= mask
-        # self-attention block
-        seq = multi_head_attention_blocks(
-            input_seq=seq,
-            num_blocks=self.num_blocks,
-            num_heads=self.num_heads,
-            embedding_dim=self.embedding_dim,
-            dropout_rate=self.dropout_rate,
-            mask=mask,
-            causality=self.causality,
-            is_training=self.is_training,
-            nonscale_inseq=nonscale_inseq,
-            name=name)
+    def _seq_representation(self, seq, mask, name, nonscale_inseq=None,
+                            dropout_rate=0.,
+                            reuse=None):
+        with tf.compat.v1.variable_scope(name, reuse=reuse):
+            # learnable absolute position embedding
+            self.abs_position = self._learnable_abs_position_embedding(
+                self.position_embedding_table)
+            seq = seq + self.abs_position
+            seq *= mask
+            # self-attention block
+            seq = multi_head_attention_blocks(
+                input_seq=seq,
+                num_blocks=self.num_blocks,
+                num_heads=self.num_heads,
+                embedding_dim=self.embedding_dim,
+                dropout_rate=dropout_rate,
+                mask=mask,
+                reuse=reuse,
+                causality=self.causality,
+                is_training=self.is_training,
+                nonscale_inseq=nonscale_inseq,
+                name=name)
         return seq
 
     def _long_term_user_representation(self, lt_item_ids, lt_item_blls,
+                                       item_embedding_table,
                                        name='long_term_user_representation'):
         with tf.compat.v1.variable_scope(
                 name, reuse=tf.compat.v1.AUTO_REUSE) as scope:
-            lt_items_emb = tf.nn.embedding_lookup(self.item_embedding_table,
+            lt_items_emb = tf.nn.embedding_lookup(item_embedding_table,
                                                   lt_item_ids)
             lt_user_rep = tf.reduce_sum(
                 tf.expand_dims(lt_item_blls, axis=-1) * lt_items_emb,
@@ -384,11 +392,13 @@ class PISA(Model):
 
     @classmethod
     def _long_short_fusion(cls, lt_rep, st_rep, name='ls_fusion'):
-        multi_alpha = tf.concat([lt_rep, st_rep], axis=-1)
-        multi_alpha = tf.compat.v1.layers.dense(multi_alpha, 2, name=name)
-        multi_alpha = tf.nn.softmax(multi_alpha, axis=-1)
+        with tf.compat.v1.variable_scope(
+                name, reuse=tf.compat.v1.AUTO_REUSE) as scope:
+            multi_alpha = tf.concat([lt_rep, st_rep], axis=-1)
+            multi_alpha = tf.compat.v1.layers.dense(multi_alpha, 2, name=name)
+            multi_alpha = tf.nn.softmax(multi_alpha, axis=-1)
 
-        multi_alpha_0 = tf.expand_dims(multi_alpha[:, :, 0], -1)
-        multi_alpha_1 = tf.expand_dims(multi_alpha[:, :, 1], -1)
-        fused_rep = multi_alpha_0 * lt_rep + multi_alpha_1 * st_rep
+            multi_alpha_0 = tf.expand_dims(multi_alpha[:, :, 0], -1)
+            multi_alpha_1 = tf.expand_dims(multi_alpha[:, :, 1], -1)
+            fused_rep = multi_alpha_0 * lt_rep + multi_alpha_1 * st_rep
         return fused_rep, multi_alpha_0

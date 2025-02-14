@@ -16,6 +16,7 @@ class TrainDataLoader(DataLoader):
         # self.train_user_tracks = {uid: set([track_ids_map[tid] for tid in tracks])
         #                           for uid, tracks in train_user_tracks.items()}
         self.track_popularities = data['norm_track_popularities']
+        self.artist_popularities = data['norm_artist_popularities']
         self.negsam_strategy = kwargs['negsam_strategy']
         self.neg_alpha = kwargs['neg_alpha']
         self.interaction_indexes = \
@@ -43,6 +44,7 @@ class TrainDataLoader(DataLoader):
             one_sample = one_train_sample(uid, idx, self.data, self.seqlen,
                                           self.n_items, user_tracks=user_tracks,
                                           norm_track_popularities=self.track_popularities,
+                                          norm_artist_popularities=self.artist_popularities,
                                           **self.kwargs)
             output.append(one_sample)
         return list(zip(*output))

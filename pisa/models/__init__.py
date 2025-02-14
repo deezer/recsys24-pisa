@@ -1,8 +1,10 @@
 from pisa import PisaError
 from pisa.models.net import PISA
+from pisa.models.net_art import PISA_ART
 
 _SUPPORTED_MODELS = {
-    'pisa': PISA
+    'pisa': PISA,
+    'pisa_art': PISA_ART
 }
 
 

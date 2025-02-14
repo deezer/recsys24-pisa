@@ -1,15 +1,14 @@
 import os
 import pickle
-import numpy as np
-import scipy.sparse as sp
-import pandas as pd
 from collections import defaultdict
+
+import numpy as np
 from tqdm import tqdm
 
-from pisa.logging import get_logger
 from pisa.constants import *
 from pisa.data.datasets.actr_weights import load_actr_spread_weights, \
     load_actr_spread_weights_for_posout, load_actr_bll_weights
+from pisa.logging import get_logger
 
 
 class Dataset:
@@ -26,6 +25,8 @@ class Dataset:
         self.cache_path = os.path.join(cache_params['path'],
                                        self.dataset_params['name'],
                                        f'min{self.min_sessions}sess')
+        self.need_artist_info = True if self.model_name == 'pisa_art' \
+            else False
         self.embedding_dim = params['training'].get('embedding_dim', 128)
         self.samples_step = self.dataset_params.get('samples_step', 5)
         self.normalize_embedding = params['training'].get(
@@ -53,6 +54,8 @@ class Dataset:
             self.cache_path, f'{self.dataset_params["name"]}_entities.npz')
         self.track_artist_map_path = os.path.join(
             self.cache_path, f'{self.dataset_params["name"]}_track_artist.pkl')
+        self.art_track_map_path = os.path.join(
+            self.cache_path, f'{self.dataset_params["name"]}_art_tracks.pkl')
         self.logger = get_logger()
 
     def fetch_data(self):
@@ -79,11 +82,33 @@ class Dataset:
         pers_track_pops = self._load_pers_track_pops(user_sessions=user_sessions)
         glob_track_pops = self._load_glob_track_pops(
             user_tracks=[train_user_tracks, valid_user_tracks])
+        # calculate artist popularities
+        glob_artist_pops = self._load_glob_artist_pops(
+            user_tracks=[train_user_tracks, valid_user_tracks],
+            track_art_map=track_art_map)
+        # get art tracks map where tracks are sorted by popularities
+        if not os.path.exists(self.art_track_map_path):
+            self.logger.info(
+                f'Extract artist-tracks map to {self.art_track_map_path}')
+            art_track_map = defaultdict(list)
+            for tid, aid in track_art_map.items():
+                art_track_map[aid].append(tid)
+            # sort tracks by popularity
+            for aid, tracks in art_track_map.items():
+                art_track_map[aid] = sorted(
+                    tracks, key=lambda x: glob_track_pops[x], reverse=True)
+            pickle.dump(art_track_map, open(self.art_track_map_path, 'wb'))
+        else:
+            self.logger.info(
+                f'Load artist-tracks map from {self.art_track_map_path}')
+            art_track_map = pickle.load(open(self.art_track_map_path, 'rb'))
         norm_track_pops = None
+        norm_art_pops = None
         if self.negsam_strategy == NEGSAM_POP:
-            norm_track_pops = self._normalize_track_popularities(glob_track_pops,
-                                                                 track_ids,
-                                                                 self.neg_alpha)
+            norm_track_pops = self._normalize_item_popularities(
+                glob_track_pops, track_ids, self.neg_alpha, item_type='track')
+            norm_art_pops = self._normalize_item_popularities(
+                glob_artist_pops, art_ids, self.neg_alpha, item_type='artist')
         # repeat consumptions dict
         repeat_consumptions = None
         if self.command == 'eval':
@@ -126,9 +151,55 @@ class Dataset:
             hop=self.hop, samples_step=self.samples_step,
             n_last_sess=self.n_last_sess)
 
+        artist_embeddings = None
+        artist_bll_weights = None
+        artist_spread_weights = None
+        artist_pos_spread_weights = None
+        if self.need_artist_info:
+            artist_bll_weights = {
+                'train': load_actr_bll_weights(self.cache_path, user_sessions,
+                                               seqlen=self.seqlen,
+                                               train_session_indexes=train_session_indexes,
+                                               recent_hist=self.recent_hist,
+                                               bll_type=self.bll_type,
+                                               data_split=self.data_split,
+                                               item_type='artist',
+                                               mode='train',
+                                               samples_step=self.samples_step,
+                                               logger=self.logger,
+                                               track_art_map=track_art_map),
+                'test': load_actr_bll_weights(self.cache_path, user_sessions,
+                                              seqlen=self.seqlen,
+                                              train_session_indexes=train_session_indexes,
+                                              recent_hist=self.recent_hist,
+                                              bll_type=self.bll_type,
+                                              data_split=self.data_split,
+                                              item_type='artist',
+                                              mode='test',
+                                              samples_step=self.samples_step,
+                                              logger=self.logger,
+                                              track_art_map=track_art_map)
+            }
+            artist_spread_weights = load_actr_spread_weights(
+                self.cache_path, user_sessions, train_session_indexes,
+                recent_hist=self.recent_hist, data_split=self.data_split,
+                item_type='artist', track_ids=track_ids,
+                logger=self.logger, seqlen=self.seqlen,
+                track_art_map=track_art_map, art_ids=art_ids, hop=self.hop,
+                samples_step=self.samples_step, n_last_sess=self.n_last_sess)
+            artist_pos_spread_weights = load_actr_spread_weights_for_posout(
+                self.cache_path, user_sessions, train_session_indexes,
+                recent_hist=self.recent_hist,
+                item_type='artist', track_ids=track_ids, logger=self.logger,
+                track_art_map=track_art_map, art_ids=art_ids, hop=self.hop,
+                seqlen=self.seqlen, samples_step=self.samples_step,
+                n_last_sess=self.n_last_sess)
+            artist_embeddings = self._load_artist_embeddings()
+
         self.data = {
             'user_sessions': user_sessions,
             'track_embeddings': track_embeddings,
+            'artist_embeddings': artist_embeddings,
             'user_ids': user_ids,
             'track_ids': track_ids,
             'art_ids': art_ids,
@@ -136,6 +207,7 @@ class Dataset:
             'track_ids_map': track_ids_map,
             'art_ids_map': art_ids_map,
             'track_art': track_art_map,
+            'art_tracks': art_track_map,
             'train_session_indexes': train_session_indexes,
             'data_split': self.data_split,
             'n_users': len(user_sessions),
@@ -144,6 +216,7 @@ class Dataset:
             'glob_track_popularities': glob_track_pops,
             'pers_track_popularities': pers_track_pops,
             'norm_track_popularities': norm_track_pops,
+            'norm_artist_popularities': norm_art_pops,
             'user_tracks': {
                 'train': train_user_tracks,
                 'valid': valid_user_tracks,
@@ -154,7 +227,10 @@ class Dataset:
             'repeat_consumptions': repeat_consumptions,
             'track_spread_weights': track_spread_weights,
             'track_pos_spread_weights': track_pos_spread_weights,
-            'track_bll_weights': track_bll_weights
+            'track_bll_weights': track_bll_weights,
+            'artist_spread_weights': artist_spread_weights,
+            'artist_pos_spread_weights': artist_pos_spread_weights,
+            'artist_bll_weights': artist_bll_weights
         }
 
     def _load_track_embeddings(self):
@@ -228,6 +304,39 @@ class Dataset:
             test_user_tracks = pickle.load(open(test_user_tracks_path, 'rb'))
         return train_user_tracks, valid_user_tracks, test_user_tracks
 
+    def _load_glob_artist_pops(self, user_tracks, track_art_map):
+        glob_artist_pops_path = os.path.join(
+            self.cache_path,
+            f'glob_artist_popularities_recenthist{self.recent_hist}_'
+            f'{self.data_split["valid"]}v_{self.data_split["test"]}t.pkl')
+        if not os.path.exists(glob_artist_pops_path):
+            self.logger.info('Calculate global artist popularities...')
+            train_user_tracks, valid_user_tracks = user_tracks
+            glob_artist_pops = defaultdict(float)
+            user_artists = defaultdict(set)
+            for uid, track_ids in train_user_tracks.items():
+                for tid in track_ids:
+                    art_id = track_art_map[tid]
+                    if art_id not in user_artists[uid]:
+                        glob_artist_pops[art_id] += 1.0
+                        user_artists[uid].add(art_id)
+            for uid, track_dict in valid_user_tracks.items():
+                for _, track_ids in track_dict.items():
+                    for tid in track_ids:
+                        art_id = track_art_map[tid]
+                        if art_id not in user_artists[uid]:
+                            glob_artist_pops[art_id] += 1.0
+                            user_artists[uid].add(art_id)
+            n_users = len(train_user_tracks)
+            glob_artist_pops = {aid: pop / n_users for aid, pop in
+                               glob_artist_pops.items()}
+            pickle.dump(glob_artist_pops, open(glob_artist_pops_path, 'wb'))
+        else:
+            self.logger.info(
+                f'Load global track popularities from {glob_artist_pops_path}...')
+            glob_artist_pops = pickle.load(open(glob_artist_pops_path, 'rb'))
+        return glob_artist_pops
+
     def _load_glob_track_pops(self, user_tracks):
         glob_track_pops_path = os.path.join(
             self.cache_path,
@@ -281,28 +390,29 @@ class Dataset:
             pers_track_pops = pickle.load(open(pers_track_pops_path, 'rb'))
         return pers_track_pops
 
-    def _normalize_track_popularities(self, glob_track_pops, track_ids,
-                                      alpha=1.0):
-        norm_track_pops_path = os.path.join(
+    def _normalize_item_popularities(self, glob_item_pops, item_ids,
+                                     alpha=1.0, item_type='track'):
+        norm_item_pops_path = os.path.join(
             self.cache_path,
-            f'norm_track_popularities_recenthist{self.recent_hist}_'
+            f'norm_{item_type}_popularities_recenthist{self.recent_hist}_'
             f'{self.data_split["valid"]}v_{self.data_split["test"]}t_alpha{alpha}.npy')
-        if not os.path.exists(norm_track_pops_path):
-            self.logger.info('Normalize global track popularities')
+        if not os.path.exists(norm_item_pops_path):
+            self.logger.info(f'Normalize global {item_type} popularities')
             if alpha != 1.0:
-                glob_track_pops = {tid: np.power(freq, alpha)
-                                   for tid, freq in glob_track_pops.items()}
-            total_count = np.sum(list(glob_track_pops.values()))
-            item_popularities = np.zeros(len(track_ids), dtype=np.float32)
-            for idx in range(len(track_ids)):
-                tid = track_ids[idx]
-                if tid in glob_track_pops:
-                    item_popularities[idx] = glob_track_pops[tid] / total_count
-            with open(norm_track_pops_path, 'wb') as f:
+                glob_item_pops = {iid: np.power(freq, alpha)
+                                   for iid, freq in glob_item_pops.items()}
+            total_count = np.sum(list(glob_item_pops.values()))
+            item_popularities = np.zeros(len(item_ids), dtype=np.float32)
+            for idx in range(len(item_ids)):
+                iid = item_ids[idx]
+                if iid in glob_item_pops:
+                    item_popularities[idx] = glob_item_pops[iid] / total_count
+            with open(norm_item_pops_path, 'wb') as f:
                 np.save(f, item_popularities)
         else:
-            self.logger.info(f'Load normalized track from {norm_track_pops_path}...')
-            with open(norm_track_pops_path, 'rb') as f:
+            self.logger.info(f'Load normalized {item_type} from '
+                             f'{norm_item_pops_path}...')
+            with open(norm_item_pops_path, 'rb') as f:
                 item_popularities = np.load(f)
         return item_popularities
 

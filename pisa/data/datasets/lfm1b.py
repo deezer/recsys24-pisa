@@ -47,6 +47,17 @@ class LFMDataset(Dataset):
             track_art_map = pickle.load(open(self.track_artist_map_path, 'rb'))
         return track_embeddings, track_ids, art_ids, track_art_map
 
+    def _load_artist_embeddings(self):
+        artist_embs_prefix = self.dataset_params['files']['artist_embeddings']
+        artist_embeddings_path = os.path.join(
+            self.dataset_params['path'], self.dataset_params['name'],
+            f'{artist_embs_prefix}_recent{self.ndays_recent}days_'
+            f'histmin{self.ndays_min}days_unstreams{self.ustreams}_'
+            f'instreams{self.istreams}_nsess{self.min_sessions}.pkl')
+        self.logger.info(f'Load artist embeddings from {artist_embeddings_path}')
+        artist_embeddings = pickle.load(open(artist_embeddings_path, 'rb'))
+        return artist_embeddings
+
     def _load_stream_sessions(self):
         output_path = os.path.join(self.cache_path, 'user_sessions.pkl')
         if not os.path.exists(output_path):

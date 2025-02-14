@@ -107,3 +107,6 @@ class DeezerDataset(Dataset):
             self.logger.info(f'Load user session streams from {output_path}')
             user_sessions = pickle.load(open(output_path, 'rb'))
         return user_sessions
+
+    def _load_artist_embeddings(self):
+        return None
