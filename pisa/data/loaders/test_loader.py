@@ -10,7 +10,16 @@ class TestDataLoader(DataLoader):
         super(TestDataLoader, self).__init__(data, n_users, n_items,
                                              batch_size, seqlen, random_seed,
                                              **kwargs)
-        self.item_ids = data['track_ids']
+        self.item_ids = data['track_ids'] if kwargs['eval_level'] == 'track' \
+            else data['art_ids']
+        self.art_ids = data['art_ids'] if kwargs['eval_level'] == 'track' \
+            else None
+        self.art_tracks = data['art_tracks'] if kwargs['eval_level'] == 'track' \
+            else None
+        track_art_map = None if kwargs['eval_level'] == 'track' \
+            else data['track_art']
+        self.track_ids_map = data['track_ids_map'] \
+            if kwargs['eval_level'] == 'track' else None
         user_sessions = data['user_sessions']
         self.user_ids = list(user_sessions.keys())
         if kwargs['num_scored_users'] > 0:
@@ -23,7 +32,12 @@ class TestDataLoader(DataLoader):
             else slice(-self.n_test_sess - self.n_valid_sess, -self.n_test_sess)
         for uid in self.user_ids:
             ref_sessions = user_sessions[uid][self.ref_indices]
-            ref_items = [set([tid for tid in ss['track_ids']]) for ss in ref_sessions]
+            if kwargs['eval_level'] == 'track':
+                ref_items = [set([tid for tid in ss['track_ids']]) for ss in ref_sessions]
+            else:
+                # get corresponding artist
+                ref_items = [set([track_art_map[tid] for tid in ss['track_ids']]) for ss in
+                             ref_sessions]
             self.ref_user_items[uid] = ref_items
         self.item_pops = {
             'glob': data['glob_track_popularities'],

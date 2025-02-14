@@ -2,6 +2,7 @@ import os
 import time
 import numpy as np
 from tqdm import tqdm
+from collections import defaultdict
 
 from pisa.logging import get_logger
 from pisa.data.loaders import dataloader_factory
@@ -31,8 +32,11 @@ class Trainer:
                                                          1000)
         self.num_favs = params['training']['model']['params'].get(
             'num_favs', 20)
+        self.num_favs_art = params['training']['model']['params'].get(
+            'num_favs_art', 5)
         # primary metric used to optimize model
         self.prim_metric = self.params['eval']['metrics'].get('primary', 'ndcg')
+        self.eval_level = self.params['eval'].get('level', 'track')
         self.logger = get_logger()
 
     def fit(self, data):
@@ -55,6 +59,13 @@ class Trainer:
         best_valid_score = -1.0
         best_ep = -1
         seqlen = model_params.get('seqlen', 50)
+        art_in_ratio = model_params.get('art_in_ratio', 0.)
+        if self.eval_level == 'track':
+            user_tracks = data['user_tracks']['train']
+        else:
+            user_tracks = defaultdict(set)
+            for uid, tracks in data['user_tracks']['train'].items():
+                user_tracks[uid] = set([data['track_art'][tid] for tid in tracks])
         with open(metrics_path, 'w') as f:
             header = 'epoch,lr,train_loss,val_loss,ndcg_all@10,recall_all@10,'\
                      'ndcg_rep@10,recall_rep@10,ndcg_exp@10,recall_exp@10'
@@ -71,8 +82,10 @@ class Trainer:
                     mode='train',
                     random_seed=random_seed,
                     num_favs=self.num_favs,
+                    num_favs_art=self.num_favs_art,
                     negsam_strategy=negsam_strategy,
-                    neg_alpha=neg_alpha)
+                    neg_alpha=neg_alpha,
+                    art_in_ratio=art_in_ratio)
                 # calculate train loss
                 train_loss = self._get_epoch_loss(
                     train_dataloader, ep)
@@ -86,14 +99,16 @@ class Trainer:
                     embedding_dim=self.model.embedding_dim,
                     random_seed=random_seed,
                     num_favs=self.num_favs,
-                    activate_actr=False)
+                    num_favs_art=self.num_favs_art,
+                    eval_level=self.eval_level)
                 ref_user_items = valid_dataloader.get_ref_user_items()
                 evaluator = Evaluator(config=eval_params,
                                       ref_user_items=ref_user_items,
-                                      user_tracks=data['user_tracks']['train'],
+                                      user_tracks=user_tracks,
                                       track_popularities=data['glob_track_popularities'],
                                       track_art=data['track_art'],
                                       user_artists=None,
+                                      num_sess_test=data['data_split']['valid'],
                                       mode='valid')
                 # Get recommendation
                 reco_items = self.recommend(dataloader=valid_dataloader,

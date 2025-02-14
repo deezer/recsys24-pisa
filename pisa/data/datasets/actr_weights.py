@@ -97,6 +97,8 @@ def load_actr_spread_weights(cache_path, user_sessions, train_session_indexes,
                                        f'nlastsess{n_last_sess}.pkl')
     if not os.path.exists(spread_weights_path):
         logger.info(f'Load {item_type} {hop}-hop adjacency matrices...')
+        track_art_map = None if 'track_art_map' not in kwargs else kwargs[
+            'track_art_map']
         train_adj_matrix_path = os.path.join(cache_path,
                                              f'train_{item_type}_sess-level_adj_matrix_'
                                              f'recenthist{recent_hist}_{hop}hop_'
@@ -115,7 +117,7 @@ def load_actr_spread_weights(cache_path, user_sessions, train_session_indexes,
                                                  level='sess',
                                                  recent_hist=-1,
                                                  data_split=data_split,
-                                                 track_art_map=None,
+                                                 track_art_map=track_art_map,
                                                  track_ids=track_ids,
                                                  n_last_sess=n_last_sess,
                                                  art_ids=art_ids,
@@ -133,7 +135,7 @@ def load_actr_spread_weights(cache_path, user_sessions, train_session_indexes,
                                                 level='sess',
                                                 recent_hist=-1,
                                                 data_split=data_split,
-                                                track_art_map=None,
+                                                track_art_map=track_art_map,
                                                 track_ids=track_ids,
                                                 n_last_sess=n_last_sess,
                                                 art_ids=art_ids,

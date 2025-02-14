@@ -67,8 +67,14 @@ def entrypoint(params):
         pretrained_embs = None
     else:
         pretrained_embs = {
-            'item_embeddings': np.array(list(data['track_embeddings'].values()))}
+            'item_embeddings': np.array(list(data['track_embeddings'].values())),
+            # 'item_embeddings': None,
+            # 'artist_embeddings': np.array(
+            #     list(data['artist_embeddings'].values()))
+            'artist_embeddings': None
+        }
     num_favs = model_params.get('num_favs', 0)
+    num_favs_art = model_params.get('num_favs_art', 0)
 
     # start model eval
     sess_config = tf.compat.v1.ConfigProto()
@@ -88,33 +94,48 @@ def entrypoint(params):
         random_seeds = eval_params.get('random_seeds')
         seqlen = model_params.get('seqlen', 20)
         eval_mode = eval_params.get('mode', 'mean')
+        mode = 'test'
+        # mode = 'valid'
+        eval_level = eval_params.get('level', 'track')
+        if eval_level == 'track':
+            user_tracks = data['user_tracks']['train']
+        else:
+            user_tracks = defaultdict(set)
+            for uid, tracks in data['user_tracks']['train'].items():
+                user_tracks[uid] = set([data['track_art'][tid] for tid in tracks])
         for step, seed in enumerate(random_seeds):
             logger.info(f'EVALUATION for #{step + 1} COHORT')
             test_dataloader = dataloader_factory(
                 data=data,
                 batch_size=batch_size,
                 seqlen=seqlen,
-                mode='test',
+                mode=mode,
                 num_scored_users=num_scored_users,
                 model_name=model_name,
                 embedding_dim=embedding_dim,
                 random_seed=seed,
                 num_favs=num_favs,
+                num_favs_art=num_favs_art,
+                eval_level=eval_level,
                 command='eval')
             # Evaluate
             ref_user_items = test_dataloader.get_ref_user_items()
             evaluator = Evaluator(config=eval_params,
                                   ref_user_items=ref_user_items,
-                                  user_tracks=data['user_tracks']['train'],
+                                  user_tracks=user_tracks,
                                   track_popularities=data['glob_track_popularities'],
                                   track_art=data['track_art'],
                                   user_artists=data['user_artists'],
-                                  mode='test')
+                                  num_sess_test=data['data_split'][mode],
+                                  eval_level=eval_level,
+                                  mode=mode)
             # model specification
             model_spec = gen_model_spec(training_params, model_params)
-
-            reco_outpath = os.path.join(reco_parent_path,
-                                        f'{model_spec}_seed{seed}_top{evaluator.max_k}.pkl')
+            # reco_outpath = os.path.join(
+            #     reco_parent_path,
+            #     f'{model_spec}_seed{seed}_top{evaluator.max_k}_eval-{eval_level}.pkl')
+            reco_outpath = os.path.join(
+                reco_parent_path, f'{model_spec}_seed{seed}.pkl')
             reco_items = _recommend(dataloader=test_dataloader,
                                     model=model,
                                     top_n=evaluator.max_k,
@@ -154,10 +175,19 @@ def _recommend(dataloader, model, reco_outpath,
             feed_dict['model_feed'] = model.build_feedict(batch_data,
                                                           is_training=False)
             feed_dict['item_ids'] = dataloader.item_ids
+            feed_dict['art_ids'] = dataloader.art_ids
+            feed_dict['art_tracks'] = dataloader.art_tracks
             feed_dict['user_ids'] = batch_data[-1]
+            # feed_dict['nxt_ids'] = batch_data[-3]
+            # feed_dict['n_test_sess'] = dataloader.n_test_sess
+            feed_dict['track_ids_map'] = dataloader.track_ids_map
 
             # get prediction from model
             batch_reco_items = model.predict(feed_dict, top_n=top_n)
+            # for uid, nxt_idx in zip(feed_dict['user_ids'], nxt_ids):
+            #     if uid not in reco_items:
+            #         reco_items[uid] = [None] * n_test_sess
+            #     reco_items[uid][nxt_idx+n_test_sess] = batch_reco_items[uid]
             for uid, items in batch_reco_items.items():
                 reco_items[uid] = items
         logger.info(f'Write prediction to {reco_outpath}')

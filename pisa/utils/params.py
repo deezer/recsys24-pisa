@@ -6,6 +6,7 @@ from pisa.constants import *
 def process_params(params):
     dataset_params = params['dataset']
     training_params = params['training']
+    eval_level = params['eval'].get('level', 'track')
     model_params = training_params['model']['params']
 
     # data specification
@@ -13,7 +14,7 @@ def process_params(params):
                    f'minsess{dataset_params["min_sessions"]}_' \
                    f'samples_step{dataset_params["samples_step"]}'
     # model specification
-    model_spec = gen_model_spec(training_params, model_params)
+    model_spec = gen_model_spec(training_params, model_params, eval_level)
 
     n_epoch = training_params["num_epochs"] if 'num_epochs' in training_params else 0
     training_params['model_dir'] = os.path.join(
@@ -24,14 +25,15 @@ def process_params(params):
     return training_params, model_params
 
 
-def gen_model_spec(training_params, model_params):
+def gen_model_spec(training_params, model_params,
+                   eval_level='track'):
     model_name = training_params['model']['name']
     seqlen = model_params.get('seqlen', 0)
     # training specifications
     training_spec = f'lr{training_params["learning_rate"]}_' \
-                    f'batch{training_params["batch_size"]}_' \
-                    f'optim-{training_params["optimizer"].lower()}_' \
-                    f'seqlen{seqlen}_' \
+                    f'b{training_params["batch_size"]}_' \
+                    f'op-{training_params["optimizer"].lower()}_' \
+                    f'slen{seqlen}_' \
                     f'dim{training_params["embedding_dim"]}'
     dropout = model_params.get('dropout_rate', 0)
     if dropout > 0:
@@ -39,10 +41,6 @@ def gen_model_spec(training_params, model_params):
     pretrained = model_params["pretrained"]
     if pretrained == "nopretrained":
         training_spec = f'{training_spec}_nopretrained'
-    else:
-        norm_emb = 'normsvd' if training_params['normalize_embedding'] is True \
-            else 'nonnormsvd'
-        training_spec = f'{training_spec}_{norm_emb}'
     n_negatives = 1 if 'n_negatives' not in model_params \
         else model_params["n_negatives"]
     model_spec = f'{model_name}_{training_spec}_' \
@@ -54,8 +52,8 @@ def gen_model_spec(training_params, model_params):
     causality = model_params["sab"].get('causality', True)
     if causality is not True:
         model_spec = f'{model_spec}_noncausal'
-    model_spec = f'{model_spec}_nblocks{model_params["sab"]["num_blocks"]}_' \
-                 f'nheads{model_params["sab"]["num_heads"]}_' \
+    model_spec = f'{model_spec}_nb{model_params["sab"]["num_blocks"]}_' \
+                 f'nh{model_params["sab"]["num_heads"]}_' \
                  f'neg{n_negatives}'
     # ACTR
     model_spec = f'{model_spec}_ACTR-bll+{model_params["actr"]["bll"]["type"]}'
@@ -70,8 +68,7 @@ def gen_model_spec(training_params, model_params):
         model_spec = f'{model_spec}+last{n_last_sess}sess'
     activate_pm = model_params['actr']['pm']['activate']
     if activate_pm:
-        emb_type = model_params['actr']['pm']['emb']
-        model_spec = f'{model_spec}-pm+{emb_type}emb'
+        model_spec = f'{model_spec}-pm'
     flatten_actr = model_params.get('flatten_actr', 1)
     if flatten_actr != 1:
         model_spec = f'{model_spec}-flat{flatten_actr}'
@@ -92,5 +89,18 @@ def gen_model_spec(training_params, model_params):
     negsam_strategy = model_params.get('negsam_strategy', NEGSAM_UNIFORM)
     if negsam_strategy == NEGSAM_POP:
         neg_alpha = model_params.get('neg_alpha', 1.0)
-        model_spec = f'{model_spec}_negsam-pop_negalpha{neg_alpha}'
+        model_spec = f'{model_spec}_negsam-pop{neg_alpha}'
+    if model_name == 'pisa_art':
+        flatten_actr_art = model_params.get('flatten_actr_art', 1)
+        num_favs_art = model_params.get('num_favs_art', 5)
+        model_spec = f'{model_spec}_nartfavs{num_favs_art}'
+        lbda_art_loss = model_params.get('lbda_art_loss', 0.5)
+        lbda_narts = model_params.get('lbda_narts', 0)
+        lbda_task_art = model_params.get('lbda_task_art', 0.)
+        lbda_pos_art = model_params.get('lbda_pos_art', 0.)
+        lbda_ls_art = model_params.get('lbda_ls_art', 0.)
+        lbda_cross = model_params.get('lbda_cross', 0.)
+        model_spec = (f'{model_spec}_lbdart-{flatten_actr_art}+{lbda_ls_art}+{lbda_task_art}+'
+                      f'{lbda_pos_art}+{lbda_narts}+{lbda_art_loss}+{lbda_cross}')
+        model_spec = f'{model_spec}_ev-{eval_level}_2br_+at'
     return model_spec

@@ -22,6 +22,16 @@ def dataloader_factory(data, batch_size, seqlen, mode='train',
         kwargs['track_pos_spread_weights'] = data['track_pos_spread_weights']
         kwargs['train_session_indexes'] = data['train_session_indexes']
 
+    if kwargs['model_name'] == 'pisa_art':
+        kwargs['artist_bll_weights'] = data['artist_bll_weights'][bll_mode]
+        kwargs['artist_spread_weights'] = data['artist_spread_weights'][
+            spread_mode]
+        kwargs['n_artists'] = data['n_artists']
+        kwargs['artist_ids_map'] = data['art_ids_map']
+        kwargs['track_art_map'] = data['track_art']
+        if mode == 'train':
+            kwargs['artist_pos_spread_weights'] = data[
+                'artist_pos_spread_weights']
     try:
         return _SUPPORTED_DATALOADERS[mode](data,
                                             n_users=data['n_users'],

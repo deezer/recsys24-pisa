@@ -38,8 +38,9 @@ def entrypoint(params):
         pretrained_embs = None
     else:
         pretrained_embs = {
-            'item_embeddings': np.array(list(data['track_embeddings'].values()))}
-
+            'item_embeddings': np.array(list(data['track_embeddings'].values())),
+            'artist_embeddings': None
+        }
     # start model training
     sess_config = tf.compat.v1.ConfigProto()
     sess_config.gpu_options.allow_growth = True
@@ -52,7 +53,6 @@ def entrypoint(params):
                                             n_items=data['n_items'],
                                             pretrained_embs=pretrained_embs)
         sess.run(tf.compat.v1.global_variables_initializer())
-
         # create a trainer to train model
         trainer = Trainer(sess, model, params)
         logger.info('Start model training')
